@@ -1,0 +1,21 @@
+# Dependencias
+node_modules/
+
+# Build / Next.js
+.next/
+out/
+dist/
+build/
+
+# Entorno
+.env
+.env*.local
+
+# Logs / temporales
+*.log
+.DS_Store
+.vercel
+coverage/
+
+# TypeScript build info (no versionar)
+*.tsbuildinfo

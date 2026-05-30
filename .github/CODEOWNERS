@@ -1,0 +1,18 @@
+# Bloqueo de contratos: solo el arquitecto puede modificar.
+# Inspirado por el Error 2.2 del v1 (agentes inventaron contratos divergentes).
+# Requiere "Branch protection rule" en main con "Require review from Code Owners".
+
+# Contratos de dominio — INMUTABLES sin review explícita
+/src/domain/      @rubenaros
+
+# Especificación ejecutable — INMUTABLE sin review explícita
+/tests/contracts/ @rubenaros
+
+# Constitución — REGLAS DURAS
+/CONSTITUTION.md  @rubenaros
+
+# Configs raíz — cambios solo justificados
+/.github/         @rubenaros
+/eslint.config.mjs @rubenaros
+/tsconfig.json    @rubenaros
+/vitest.config.ts @rubenaros
