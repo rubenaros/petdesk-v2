@@ -60,3 +60,37 @@ export interface Slot {
   start: string; // ISO
   end: string; // ISO
 }
+
+// ---- Métricas / Stats (v3 — feature stats dashboard) ----
+// Agregaciones calculadas por StatsEngine sobre un rango temporal.
+
+export interface ServiceCount {
+  serviceId: string;
+  count: number;
+}
+
+export interface ClientCount {
+  clientId: string;
+  count: number;
+}
+
+export interface StatsBundle {
+  // Rango analizado (incl. start, excl. end)
+  rangeStart: string; // ISO
+  rangeEnd: string; // ISO
+
+  // Volúmenes (citas en el rango — cualquier estado)
+  appointmentsTotal: number;
+  appointmentsBooked: number;
+  appointmentsCompleted: number;
+  appointmentsCancelled: number;
+
+  // Tasas en [0..1]
+  cancellationRate: number; // cancelled / total (0 si total=0)
+  occupancyRate: number; // citas_no_canceladas_min / minutos_laborables_del_rango (0..1)
+
+  // Tops (ordenados desc por count, máximo 5 cada uno)
+  topServicesByBookings: ServiceCount[];
+  topServicesByCancellations: ServiceCount[];
+  topClientsByVisits: ClientCount[];
+}
