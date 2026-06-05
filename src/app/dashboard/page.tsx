@@ -29,25 +29,45 @@ interface Notification {
   createdAt: string;
 }
 
+interface StatsBundle {
+  rangeStart: string;
+  rangeEnd: string;
+  appointmentsTotal: number;
+  appointmentsBooked: number;
+  appointmentsCompleted: number;
+  appointmentsCancelled: number;
+  cancellationRate: number;
+  occupancyRate: number;
+  topServicesByBookings: Array<{ serviceId: string; count: number }>;
+  topServicesByCancellations: Array<{ serviceId: string; count: number }>;
+  topClientsByVisits: Array<{ clientId: string; count: number }>;
+}
+
 export default function DashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [stats, setStats] = useState<StatsBundle | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [timeOffset, setTimeOffset] = useState(0); // hours to advance
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [apptsRes, waitRes, notifRes] = await Promise.all([
+      const [apptsRes, waitRes, notifRes, statsRes] = await Promise.all([
         fetch("/api/appointments"),
         fetch("/api/waitlist"),
         fetch("/api/notifications"),
+        fetch("/api/stats"),
       ]);
 
       if (apptsRes.ok) setAppointments(await apptsRes.json());
       if (waitRes.ok) setWaitlist(await waitRes.json());
       if (notifRes.ok) setNotifications(await notifRes.json());
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setStats(data.stats);
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -61,6 +81,15 @@ export default function DashboardPage() {
       await fetchData();
     };
     loadData();
+
+    // Poll for appointments and stats every 5 seconds
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, 5000);
+
+    return () => {
+      clearInterval(intervalId);
+    };
   }, []);
 
   const handleCancel = async (appointmentId: string) => {
@@ -293,8 +322,98 @@ export default function DashboardPage() {
               </section>
             </div>
 
-            {/* Right column: Notifications */}
+            {/* Right column: Stats & Notifications */}
             <div>
+              {/* Stats section */}
+              <section className="mb-8 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">📊 Estadísticas</h2>
+                  {stats && (
+                    <div className="text-xs text-zinc-500">
+                      {new Date(stats.rangeStart).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })} –{' '}
+                      {new Date(stats.rangeEnd).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                    </div>
+                  )}
+                </div>
+                
+                {stats ? (
+                  <div className="mt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-lg border border-zinc-200 bg-white p-4 text-center">
+                        <div className="text-2xl font-semibold">{stats.appointmentsTotal}</div>
+                        <div className="mt-1 text-sm text-zinc-600">Total citas</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 bg-white p-4 text-center">
+                        <div className="text-2xl font-semibold">
+                          {Math.round(stats.cancellationRate * 100)}%
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-600">Tasa de cancelación</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 bg-white p-4 text-center">
+                        <div className="text-2xl font-semibold">
+                          {Math.round(stats.occupancyRate * 100)}%
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-600">Ocupancia</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 bg-white p-4 text-center">
+                        <div className="text-2xl font-semibold">{stats.appointmentsBooked}</div>
+                        <div className="mt-1 text-sm text-zinc-600">Citas activas</div>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-6 grid grid-cols-2 gap-6">
+                      <div>
+                        <h3 className="mb-3 text-sm font-semibold text-zinc-700">Top 3 servicios por reservas</h3>
+                        {stats.topServicesByBookings.slice(0, 3).length > 0 ? (
+                          <div className="space-y-2">
+                            {stats.topServicesByBookings.slice(0, 3).map((item, index) => (
+                              <div key={item.serviceId} className="flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-xs font-medium text-white">
+                                    {index + 1}
+                                  </div>
+                                  <span className="text-sm">{getServiceName(item.serviceId)}</span>
+                                </div>
+                                <span className="text-sm font-medium">{item.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-zinc-500">Sin datos</p>
+                        )}
+                      </div>
+                      
+                      <div>
+                        <h3 className="mb-3 text-sm font-semibold text-zinc-700">Top 3 servicios por cancelaciones</h3>
+                        {stats.topServicesByCancellations.slice(0, 3).length > 0 ? (
+                          <div className="space-y-2">
+                            {stats.topServicesByCancellations.slice(0, 3).map((item, index) => (
+                              <div key={item.serviceId} className="flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2">
+                                <div className="flex items-center gap-2">
+                                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900 text-xs font-medium text-white">
+                                    {index + 1}
+                                  </div>
+                                  <span className="text-sm">{getServiceName(item.serviceId)}</span>
+                                </div>
+                                <span className="text-sm font-medium">{item.count}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-zinc-500">Sin datos</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-4 text-center py-4">
+                    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900"></div>
+                    <p className="mt-2 text-sm text-zinc-500">Cargando estadísticas...</p>
+                  </div>
+                )}
+              </section>
+
+              {/* Notifications */}
               <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-semibold">📢 Feed de notificaciones</h2>
@@ -335,31 +454,7 @@ export default function DashboardPage() {
                 )}
               </section>
 
-              {/* Stats */}
-              <div className="mt-8 grid grid-cols-2 gap-4">
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {appointments.filter((a) => a.status === "booked").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Citas activas</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {appointments.filter((a) => a.status === "cancelled").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Canceladas</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">{waitlist.length}</div>
-                  <div className="mt-1 text-sm text-zinc-600">En lista de espera</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {notifications.filter((n) => n.kind === "backfill_offer").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Ofertas de backfill</div>
-                </div>
-              </div>
+              
             </div>
           </div>
         )}
