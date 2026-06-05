@@ -29,25 +29,45 @@ interface Notification {
   createdAt: string;
 }
 
+interface StatsBundle {
+  rangeStart: string;
+  rangeEnd: string;
+  appointmentsTotal: number;
+  appointmentsBooked: number;
+  appointmentsCompleted: number;
+  appointmentsCancelled: number;
+  cancellationRate: number;
+  occupancyRate: number;
+  topServicesByBookings: Array<{ serviceId: string; count: number }>;
+  topServicesByCancellations: Array<{ serviceId: string; count: number }>;
+  topClientsByVisits: Array<{ clientId: string; count: number }>;
+}
+
 export default function DashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [stats, setStats] = useState<StatsBundle | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [timeOffset, setTimeOffset] = useState(0); // hours to advance
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [apptsRes, waitRes, notifRes] = await Promise.all([
+      const [apptsRes, waitRes, notifRes, statsRes] = await Promise.all([
         fetch("/api/appointments"),
         fetch("/api/waitlist"),
         fetch("/api/notifications"),
+        fetch("/api/stats"),
       ]);
 
       if (apptsRes.ok) setAppointments(await apptsRes.json());
       if (waitRes.ok) setWaitlist(await waitRes.json());
       if (notifRes.ok) setNotifications(await notifRes.json());
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setStats(data.stats);
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -61,6 +81,13 @@ export default function DashboardPage() {
       await fetchData();
     };
     loadData();
+    
+    // Polling cada 5 segundos para actualizar estadísticas
+    const intervalId = setInterval(() => {
+      fetchData();
+    }, 5000);
+    
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleCancel = async (appointmentId: string) => {
@@ -197,6 +224,127 @@ export default function DashboardPage() {
             >
               Avanzar tiempo
             </button>
+          </div>
+        </div>
+
+        {/* Stats section */}
+        <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">📊 Estadísticas</h2>
+            {stats && (
+              <span className="text-sm text-zinc-500">
+                {formatDate(stats.rangeStart)} – {formatDate(stats.rangeEnd)}
+              </span>
+            )}
+          </div>
+          
+          {stats ? (
+            <div className="mt-6 grid grid-cols-2 gap-6 lg:grid-cols-3">
+              {/* Total citas */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <div className="text-3xl font-semibold">{stats.appointmentsTotal}</div>
+                <div className="mt-1 text-sm text-zinc-600">Total citas</div>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded bg-green-50 p-2 text-center text-green-700">
+                    <div className="font-medium">{stats.appointmentsBooked}</div>
+                    <div>Activas</div>
+                  </div>
+                  <div className="rounded bg-blue-50 p-2 text-center text-blue-700">
+                    <div className="font-medium">{stats.appointmentsCompleted}</div>
+                    <div>Completadas</div>
+                  </div>
+                  <div className="rounded bg-red-50 p-2 text-center text-red-700">
+                    <div className="font-medium">{stats.appointmentsCancelled}</div>
+                    <div>Canceladas</div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Tasas */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <div className="text-3xl font-semibold">{(stats.cancellationRate * 100).toFixed(1)}%</div>
+                <div className="mt-1 text-sm text-zinc-600">Tasa de cancelación</div>
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-sm">
+                    <span>Ocupancia</span>
+                    <span className="font-medium">{(stats.occupancyRate * 100).toFixed(1)}%</span>
+                  </div>
+                  <div className="mt-2 h-2 w-full rounded-full bg-zinc-200">
+                    <div 
+                      className="h-full rounded-full bg-green-500" 
+                      style={{ width: `${Math.min(stats.occupancyRate * 100, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+              
+              {/* Top servicios por reservas */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <h3 className="text-sm font-semibold text-zinc-700">Top servicios por reservas</h3>
+                <div className="mt-3 space-y-2">
+                  {stats.topServicesByBookings.slice(0, 3).map((service, idx) => (
+                    <div key={service.serviceId} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-xs text-white">
+                          {idx + 1}
+                        </div>
+                        <span>{getServiceName(service.serviceId)}</span>
+                      </div>
+                      <span className="font-medium">{service.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Top servicios por cancelaciones */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <h3 className="text-sm font-semibold text-zinc-700">Top servicios por cancelaciones</h3>
+                <div className="mt-3 space-y-2">
+                  {stats.topServicesByCancellations.slice(0, 3).map((service, idx) => (
+                    <div key={service.serviceId} className="flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-xs text-white">
+                          {idx + 1}
+                        </div>
+                        <span>{getServiceName(service.serviceId)}</span>
+                      </div>
+                      <span className="font-medium">{service.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Top clientes */}
+              <div className="rounded-xl border border-zinc-200 p-5 lg:col-span-2">
+                <h3 className="text-sm font-semibold text-zinc-700">Top clientes por visitas</h3>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {stats.topClientsByVisits.slice(0, 3).map((client, idx) => (
+                    <div key={client.clientId} className="rounded-lg border border-zinc-200 p-3">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-900 text-sm font-medium text-white">
+                          {idx + 1}
+                        </div>
+                        <div>
+                          <div className="font-medium">{getClientName(client.clientId)}</div>
+                          <div className="text-sm text-zinc-600">{client.count} visita{client.count !== 1 ? 's' : ''}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 text-center py-8">
+              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-zinc-300 border-t-zinc-900"></div>
+              <p className="mt-3 text-zinc-500">Cargando estadísticas...</p>
+            </div>
+          )}
+          
+          <div className="mt-6 border-t border-zinc-200 pt-6">
+            <p className="text-sm text-zinc-500">
+              Las estadísticas se actualizan automáticamente cada 5 segundos.
+            </p>
           </div>
         </div>
 
