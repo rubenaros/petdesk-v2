@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Scheduler } from '../src/engine/scheduler';
+import { StatsEngine } from '../src/engine/stats';
 import { InMemoryRepo } from '../src/infra/memoryRepo';
 
 function fixedClock(now: Date) {
@@ -101,5 +102,122 @@ describe('Scheduler edge cases', () => {
     expect(ids).not.toContain('w-early');
     expect(ids).not.toContain('w-late');
     expect(candidates).toHaveLength(0);
+  });
+});
+
+describe('StatsEngine edge cases', () => {
+  it('rango vacío devuelve todos los contadores en 0', () => {
+    const repo = new InMemoryRepo(false);
+    const engine = new StatsEngine(repo);
+
+    const svc = { id: 'svc-bano', name: 'Baño', durationMin: 60, priceCents: 100, upsells: [] };
+    repo.saveService(svc);
+    const cli = { id: 'cli-ana', name: 'Ana', phone: '111' };
+    repo.saveClient(cli);
+
+    repo.saveAppointment({
+      id: 'appt-1', clientId: cli.id, serviceId: svc.id,
+      start: '2099-01-01T10:00:00.000Z', end: '2099-01-01T11:00:00.000Z', status: 'booked',
+    });
+
+    const stats = engine.compute(
+      new Date('2099-02-01T00:00:00.000Z'),
+      new Date('2099-02-02T00:00:00.000Z'),
+    );
+
+    expect(stats.appointmentsTotal).toBe(0);
+    expect(stats.cancellationRate).toBe(0);
+    expect(stats.occupancyRate).toBe(0);
+    expect(stats.topServicesByBookings).toHaveLength(0);
+    expect(stats.topServicesByCancellations).toHaveLength(0);
+    expect(stats.topClientsByVisits).toHaveLength(0);
+  });
+
+  it('todo cancelado: cancellationRate=1, occupancyRate=0', () => {
+    const repo = new InMemoryRepo(false);
+    const engine = new StatsEngine(repo);
+
+    const svc = { id: 'svc-bano', name: 'Baño', durationMin: 60, priceCents: 100, upsells: [] };
+    repo.saveService(svc);
+    const cli = { id: 'cli-ana', name: 'Ana', phone: '111' };
+    repo.saveClient(cli);
+
+    repo.saveAppointment({
+      id: 'appt-1', clientId: cli.id, serviceId: svc.id,
+      start: '2099-01-01T10:00:00.000Z', end: '2099-01-01T11:00:00.000Z', status: 'cancelled',
+    });
+    repo.saveAppointment({
+      id: 'appt-2', clientId: cli.id, serviceId: svc.id,
+      start: '2099-01-01T12:00:00.000Z', end: '2099-01-01T13:00:00.000Z', status: 'cancelled',
+    });
+
+    const stats = engine.compute(
+      new Date('2099-01-01T00:00:00.000Z'),
+      new Date('2099-01-02T00:00:00.000Z'),
+    );
+
+    expect(stats.appointmentsTotal).toBe(2);
+    expect(stats.appointmentsCancelled).toBe(2);
+    expect(stats.cancellationRate).toBe(1);
+    expect(stats.occupancyRate).toBe(0);
+    expect(stats.topServicesByBookings).toHaveLength(0);
+  });
+
+  it('rango parcial de día laborable calcula minutos laborables correctos', () => {
+    const repo = new InMemoryRepo(false);
+    const engine = new StatsEngine(repo);
+
+    const svc = { id: 'svc-bano', name: 'Baño', durationMin: 60, priceCents: 100, upsells: [] };
+    repo.saveService(svc);
+    const cli = { id: 'cli-ana', name: 'Ana', phone: '111' };
+    repo.saveClient(cli);
+
+    repo.saveAppointment({
+      id: 'appt-1', clientId: cli.id, serviceId: svc.id,
+      start: '2099-01-01T10:00:00.000Z', end: '2099-01-01T11:00:00.000Z', status: 'booked',
+    });
+
+    // Rango de 4 horas dentro del día laborable: 10:00 -> 14:00 = 240 minutos laborables
+    const stats = engine.compute(
+      new Date('2099-01-01T10:00:00.000Z'),
+      new Date('2099-01-01T14:00:00.000Z'),
+    );
+
+    expect(stats.occupancyRate).toBe(Math.round((60 / 240) * 10000) / 10000);
+  });
+
+  it('empate en tops resuelto establemente por id', () => {
+    const repo = new InMemoryRepo(false);
+    const engine = new StatsEngine(repo);
+
+    const svcA = { id: 'svc-a', name: 'A', durationMin: 30, priceCents: 100, upsells: [] };
+    const svcB = { id: 'svc-b', name: 'B', durationMin: 30, priceCents: 100, upsells: [] };
+    const svcC = { id: 'svc-c', name: 'C', durationMin: 30, priceCents: 100, upsells: [] };
+    repo.saveService(svcA);
+    repo.saveService(svcB);
+    repo.saveService(svcC);
+
+    const cliX = { id: 'cli-x', name: 'X', phone: '111' };
+    const cliY = { id: 'cli-y', name: 'Y', phone: '222' };
+    repo.saveClient(cliX);
+    repo.saveClient(cliY);
+
+    // svc-b y svc-a tienen 2 bookings; svc-c tiene 1
+    repo.saveAppointment({ id: 'a1', clientId: cliX.id, serviceId: svcB.id, start: '2099-01-01T10:00:00.000Z', end: '2099-01-01T10:30:00.000Z', status: 'booked' });
+    repo.saveAppointment({ id: 'a2', clientId: cliX.id, serviceId: svcB.id, start: '2099-01-01T11:00:00.000Z', end: '2099-01-01T11:30:00.000Z', status: 'booked' });
+    repo.saveAppointment({ id: 'a3', clientId: cliY.id, serviceId: svcA.id, start: '2099-01-01T12:00:00.000Z', end: '2099-01-01T12:30:00.000Z', status: 'booked' });
+    repo.saveAppointment({ id: 'a4', clientId: cliY.id, serviceId: svcA.id, start: '2099-01-01T13:00:00.000Z', end: '2099-01-01T13:30:00.000Z', status: 'booked' });
+    repo.saveAppointment({ id: 'a5', clientId: cliX.id, serviceId: svcC.id, start: '2099-01-01T14:00:00.000Z', end: '2099-01-01T14:30:00.000Z', status: 'booked' });
+
+    const stats = engine.compute(
+      new Date('2099-01-01T00:00:00.000Z'),
+      new Date('2099-01-02T00:00:00.000Z'),
+    );
+
+    expect(stats.topServicesByBookings).toHaveLength(3);
+    // svc-a y svc-b empatan con 2 -> tie-break por id ascendente
+    expect(stats.topServicesByBookings[0].serviceId).toBe('svc-a');
+    expect(stats.topServicesByBookings[1].serviceId).toBe('svc-b');
+    expect(stats.topServicesByBookings[2].serviceId).toBe('svc-c');
   });
 });
