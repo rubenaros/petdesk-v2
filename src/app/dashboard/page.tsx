@@ -21,6 +21,20 @@ interface WaitlistEntry {
   createdAt: string;
 }
 
+interface StatsBundle {
+  rangeStart: string;
+  rangeEnd: string;
+  appointmentsTotal: number;
+  appointmentsBooked: number;
+  appointmentsCompleted: number;
+  appointmentsCancelled: number;
+  cancellationRate: number;
+  occupancyRate: number;
+  topServicesByBookings: { serviceId: string; count: number }[];
+  topServicesByCancellations: { serviceId: string; count: number }[];
+  topClientsByVisits: { clientId: string; count: number }[];
+}
+
 interface Notification {
   id: string;
   clientId: string;
@@ -35,6 +49,9 @@ export default function DashboardPage() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [timeOffset, setTimeOffset] = useState(0); // hours to advance
+
+  const [stats, setStats] = useState<StatsBundle | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -54,6 +71,30 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   };
+
+  const fetchStats = async () => {
+    setStatsLoading(true);
+    try {
+      const res = await fetch("/api/stats");
+      if (res.ok) {
+        const data = await res.json();
+        setStats(data.stats);
+      }
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const loadStats = async () => {
+      await fetchStats();
+    };
+    loadStats();
+    const interval = setInterval(fetchStats, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Wrap in async function to avoid calling setState directly
@@ -336,30 +377,63 @@ export default function DashboardPage() {
               </section>
 
               {/* Stats */}
-              <div className="mt-8 grid grid-cols-2 gap-4">
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {appointments.filter((a) => a.status === "booked").length}
+              <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">📊 Estadísticas (30 días)</h2>
+                  {statsLoading && (
+                    <div className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-900"></div>
+                  )}
+                </div>
+
+                {stats ? (
+                  <div className="mt-4 space-y-6">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="rounded-lg border border-zinc-200 p-4 text-center">
+                        <div className="text-2xl font-semibold">{stats.appointmentsTotal}</div>
+                        <div className="mt-1 text-sm text-zinc-600">Total citas</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 p-4 text-center">
+                        <div className="text-2xl font-semibold">
+                          {(stats.cancellationRate * 100).toFixed(2)}%
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-600">Cancelación</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 p-4 text-center">
+                        <div className="text-2xl font-semibold">
+                          {(stats.occupancyRate * 100).toFixed(2)}%
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-600">Ocupación</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="text-sm font-medium text-zinc-700">Top servicios por reservas</h3>
+                      {stats.topServicesByBookings.length === 0 ? (
+                        <p className="mt-2 text-sm text-zinc-500">Sin datos.</p>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {stats.topServicesByBookings.slice(0, 3).map((s, i) => (
+                            <div
+                              key={s.serviceId}
+                              className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-xs font-medium text-white">
+                                  {i + 1}
+                                </span>
+                                <span className="text-sm">{getServiceName(s.serviceId)}</span>
+                              </div>
+                              <span className="text-sm font-medium">{s.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm text-zinc-600">Citas activas</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {appointments.filter((a) => a.status === "cancelled").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Canceladas</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">{waitlist.length}</div>
-                  <div className="mt-1 text-sm text-zinc-600">En lista de espera</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {notifications.filter((n) => n.kind === "backfill_offer").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Ofertas de backfill</div>
-                </div>
-              </div>
+                ) : (
+                  <p className="mt-4 text-center text-zinc-500">Cargando estadísticas...</p>
+                )}
+              </section>
             </div>
           </div>
         )}
