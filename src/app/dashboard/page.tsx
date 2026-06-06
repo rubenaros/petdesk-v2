@@ -3,6 +3,20 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 
+interface StatsBundle {
+  rangeStart: string;
+  rangeEnd: string;
+  appointmentsTotal: number;
+  appointmentsBooked: number;
+  appointmentsCompleted: number;
+  appointmentsCancelled: number;
+  cancellationRate: number;
+  occupancyRate: number;
+  topServicesByBookings: { serviceId: string; count: number }[];
+  topServicesByCancellations: { serviceId: string; count: number }[];
+  topClientsByVisits: { clientId: string; count: number }[];
+}
+
 interface Appointment {
   id: string;
   clientId: string;
@@ -33,21 +47,27 @@ export default function DashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [stats, setStats] = useState<StatsBundle | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [timeOffset, setTimeOffset] = useState(0); // hours to advance
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [apptsRes, waitRes, notifRes] = await Promise.all([
+      const [apptsRes, waitRes, notifRes, statsRes] = await Promise.all([
         fetch("/api/appointments"),
         fetch("/api/waitlist"),
         fetch("/api/notifications"),
+        fetch("/api/stats"),
       ]);
 
       if (apptsRes.ok) setAppointments(await apptsRes.json());
       if (waitRes.ok) setWaitlist(await waitRes.json());
       if (notifRes.ok) setNotifications(await notifRes.json());
+      if (statsRes.ok) {
+        const data = await statsRes.json();
+        setStats(data.stats);
+      }
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -56,11 +76,14 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    // Wrap in async function to avoid calling setState directly
     const loadData = async () => {
       await fetchData();
     };
     loadData();
+
+    // Set up polling every 5 seconds
+    const intervalId = setInterval(fetchData, 5000);
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleCancel = async (appointmentId: string) => {
@@ -169,6 +192,136 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Panel de groomer</h1>
           <p className="mt-2 text-zinc-500">Gestiona citas, lista de espera y notificaciones en tiempo real.</p>
         </div>
+
+        {/* Stats section */}
+        {stats && (
+          <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold">📊 Estadísticas (últimos 30 días)</h2>
+              <span className="text-sm text-zinc-500">
+                {new Date(stats.rangeStart).toLocaleDateString('es-ES')} - {new Date(stats.rangeEnd).toLocaleDateString('es-ES')}
+              </span>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              {/* Total appointments */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-blue-100 p-2">
+                    <span className="text-xl">📅</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-semibold">{stats.appointmentsTotal}</div>
+                    <div className="text-sm text-zinc-600">Citas totales</div>
+                  </div>
+                </div>
+                <div className="mt-4 text-xs text-zinc-500 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Confirmadas:</span>
+                    <span className="font-medium">{stats.appointmentsBooked}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Completadas:</span>
+                    <span className="font-medium">{stats.appointmentsCompleted}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Canceladas:</span>
+                    <span className="font-medium">{stats.appointmentsCancelled}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Rates */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-red-100 p-2">
+                    <span className="text-xl">📉</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-semibold">{(stats.cancellationRate * 100).toFixed(1)}%</div>
+                    <div className="text-sm text-zinc-600">Tasa de cancelación</div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="h-2 w-full bg-zinc-200 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-red-500" 
+                      style={{ width: `${stats.cancellationRate * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Occupancy */}
+              <div className="rounded-xl border border-zinc-200 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-green-100 p-2">
+                    <span className="text-xl">🏢</span>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-semibold">{(stats.occupancyRate * 100).toFixed(1)}%</div>
+                    <div className="text-sm text-zinc-600">Ocupancia</div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <div className="h-2 w-full bg-zinc-200 rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-green-500" 
+                      style={{ width: `${stats.occupancyRate * 100}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Top services */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Top services by bookings */}
+              <div className="rounded-lg border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-3">Top servicios por reservas</h3>
+                {stats.topServicesByBookings.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No hay datos</p>
+                ) : (
+                  <div className="space-y-3">
+                    {stats.topServicesByBookings.map((item, index) => (
+                      <div key={item.serviceId} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700">
+                            {index + 1}
+                          </div>
+                          <span className="text-sm">{getServiceName(item.serviceId)}</span>
+                        </div>
+                        <span className="font-medium">{item.count} reservas</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Top services by cancellations */}
+              <div className="rounded-lg border border-zinc-200 p-4">
+                <h3 className="font-semibold mb-3">Top servicios por cancelaciones</h3>
+                {stats.topServicesByCancellations.length === 0 ? (
+                  <p className="text-sm text-zinc-500">No hay datos</p>
+                ) : (
+                  <div className="space-y-3">
+                    {stats.topServicesByCancellations.map((item, index) => (
+                      <div key={item.serviceId} className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-red-100 text-xs font-medium text-red-700">
+                            {index + 1}
+                          </div>
+                          <span className="text-sm">{getServiceName(item.serviceId)}</span>
+                        </div>
+                        <span className="font-medium">{item.count} cancel.</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Time control */}
         <div className="mb-8 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
