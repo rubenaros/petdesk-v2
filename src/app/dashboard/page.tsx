@@ -29,25 +29,42 @@ interface Notification {
   createdAt: string;
 }
 
+interface StatsBundle {
+  rangeStart: string;
+  rangeEnd: string;
+  appointmentsTotal: number;
+  appointmentsBooked: number;
+  appointmentsCompleted: number;
+  appointmentsCancelled: number;
+  cancellationRate: number;
+  occupancyRate: number;
+  topServicesByBookings: { serviceId: string; count: number }[];
+  topServicesByCancellations: { serviceId: string; count: number }[];
+  topClientsByVisits: { clientId: string; count: number }[];
+}
+
 export default function DashboardPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [stats, setStats] = useState<StatsBundle | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [timeOffset, setTimeOffset] = useState(0); // hours to advance
 
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [apptsRes, waitRes, notifRes] = await Promise.all([
+      const [apptsRes, waitRes, notifRes, statsRes] = await Promise.all([
         fetch("/api/appointments"),
         fetch("/api/waitlist"),
         fetch("/api/notifications"),
+        fetch("/api/stats"),
       ]);
 
       if (apptsRes.ok) setAppointments(await apptsRes.json());
       if (waitRes.ok) setWaitlist(await waitRes.json());
       if (notifRes.ok) setNotifications(await notifRes.json());
+      if (statsRes.ok) setStats(await statsRes.json().then((j) => j.stats));
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -56,11 +73,16 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    // Wrap in async function to avoid calling setState directly
     const loadData = async () => {
       await fetchData();
     };
     loadData();
+
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const handleCancel = async (appointmentId: string) => {
@@ -336,30 +358,52 @@ export default function DashboardPage() {
               </section>
 
               {/* Stats */}
-              <div className="mt-8 grid grid-cols-2 gap-4">
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {appointments.filter((a) => a.status === "booked").length}
+              <section className="mt-8 rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">📊 Estadísticas</h2>
+                  <span className="text-xs text-zinc-500">Últimos 30 días</span>
+                </div>
+                {stats ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="rounded-lg border border-zinc-200 p-4 text-center">
+                        <div className="text-2xl font-semibold">{stats.appointmentsTotal}</div>
+                        <div className="mt-1 text-xs text-zinc-600">Total citas</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 p-4 text-center">
+                        <div className="text-2xl font-semibold">{(stats.cancellationRate * 100).toFixed(1)}%</div>
+                        <div className="mt-1 text-xs text-zinc-600">Cancelación</div>
+                      </div>
+                      <div className="rounded-lg border border-zinc-200 p-4 text-center">
+                        <div className="text-2xl font-semibold">{(stats.occupancyRate * 100).toFixed(1)}%</div>
+                        <div className="mt-1 text-xs text-zinc-600">Ocupación</div>
+                      </div>
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-medium text-zinc-700">Top servicios por reservas</h3>
+                      {stats.topServicesByBookings.length === 0 ? (
+                        <p className="mt-2 text-sm text-zinc-500">Sin datos</p>
+                      ) : (
+                        <div className="mt-2 space-y-2">
+                          {stats.topServicesByBookings.slice(0, 3).map((s, i) => (
+                            <div key={s.serviceId} className="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2">
+                              <div className="flex items-center gap-2">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-zinc-900 text-xs font-medium text-white">
+                                  {i + 1}
+                                </span>
+                                <span className="text-sm">{getServiceName(s.serviceId)}</span>
+                              </div>
+                              <span className="text-sm font-medium">{s.count}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="mt-1 text-sm text-zinc-600">Citas activas</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {appointments.filter((a) => a.status === "cancelled").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Canceladas</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">{waitlist.length}</div>
-                  <div className="mt-1 text-sm text-zinc-600">En lista de espera</div>
-                </div>
-                <div className="rounded-xl border border-zinc-200 bg-white p-5 text-center">
-                  <div className="text-2xl font-semibold">
-                    {notifications.filter((n) => n.kind === "backfill_offer").length}
-                  </div>
-                  <div className="mt-1 text-sm text-zinc-600">Ofertas de backfill</div>
-                </div>
-              </div>
+                ) : (
+                  <p className="mt-4 text-center text-zinc-500">Cargando estadísticas...</p>
+                )}
+              </section>
             </div>
           </div>
         )}
