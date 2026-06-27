@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, v5-baseline]
+    branches: [main, "v*-baseline"]
   pull_request:
-    branches: [main, v5-baseline]
+    branches: [main, "v*-baseline"]
 
 jobs:
   ci:
